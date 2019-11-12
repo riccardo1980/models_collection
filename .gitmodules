@@ -1,0 +1,3 @@
+[submodule "dataset_collection"]
+	path = dataset_collection
+	url = git@github.com:riccardo1980/dataset_collection.git
