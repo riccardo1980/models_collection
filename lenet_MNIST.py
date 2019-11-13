@@ -1,11 +1,3 @@
-from tensorflow.compat.v1.feature_column import input_layer
-from tensorflow.compat.v1 import variance_scaling_initializer
-from tensorflow.compat.v1.keras.layers import Conv2D, MaxPool2D, Dense, Flatten
-from tensorflow.compat.v1.train import AdagradOptimizer
-from tensorflow.python.util import deprecation as tf_deprecation
-tf_deprecation._PRINT_DEPRECATION_WARNINGS = False
-import tensorflow as tf
-
 import os
 import sys
 import warnings
@@ -13,71 +5,34 @@ import argparse
 from datetime import datetime
 import json
 import numpy as np
-from sklearn.metrics import classification_report, confusion_matrix
+import tensorflow as tf
 
+from models.convolutional import LENET_5
 sys.path.insert(0, 'dataset_collection')
 from dataset_collection.image import MNIST
 
+from sklearn.metrics import classification_report, confusion_matrix
 
-# pylint: disable=missing-docstring, C0301
-
-
-def model_fn_LENET_5(features,
-                     activation='relu',
-                     kernel_initializer=tf.keras.initializers.TruncatedNormal(
-                         mean=0, stddev=0.1),
-                     bias_initializer='zeros'):
-
-    # conv1: output is [None, 28, 28, 6]
-    conv1 = Conv2D(filters=6, kernel_size=(5, 5), strides=(1, 1),
-                   padding='valid', activation=activation, use_bias=True,
-                   kernel_initializer=kernel_initializer, bias_initializer=bias_initializer)(features)
-
-    # pool1: output is [None, 14, 14, 6]
-    pool1 = MaxPool2D(pool_size=(2, 2))(conv1)
-
-    # conv2: output is [None, 10, 10, 16]
-    conv2 = Conv2D(filters=16, kernel_size=(5, 5), strides=(1, 1),
-                   padding='valid', activation=activation, use_bias=True,
-                   kernel_initializer=kernel_initializer, bias_initializer=bias_initializer)(pool1)
-
-    # pool2: output is [None, 5, 5, 16] -> flattened on input of FC to [None, 400]
-    pool2 = MaxPool2D(pool_size=(2, 2))(conv2)
-    flatten = Flatten()(pool2)
-
-    # fc3: output is [None, 120]
-    fc3 = Dense(units=120, activation=activation, use_bias=True,
-                kernel_initializer=kernel_initializer,
-                bias_initializer=bias_initializer)(flatten)
-
-    # fc4: output is [None, 84]
-    fc4 = Dense(units=84, activation=activation, use_bias=True,
-                kernel_initializer=kernel_initializer,
-                bias_initializer=bias_initializer)(fc3)
-
-    return fc4
+from tensorflow.compat.v1.feature_column import input_layer
+from tensorflow.compat.v1.keras.layers import Dense
+from tensorflow.compat.v1.train import AdagradOptimizer
+from tensorflow.python.util import deprecation as tf_deprecation
+tf_deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 
 def model_fn(features, labels, mode, params):
 
-    # [TODO]: remove unneded comments
-    kernel_initializer = variance_scaling_initializer(
-        distribution='truncated_normal')
-    #kernel_initializer = tf.keras.initializers.TruncatedNormal(mean=0, stddev=0.1)
+    kernel_initializer = tf.keras.initializers.TruncatedNormal(
+        mean=0, stddev=0.1)
     bias_initializer = 'zeros'
 
-    # input: [None, 32, 32, 1]
-    #feat = tf.reshape(input_layer(
-    #    features, params['feature_columns']), [-1, 32, 32, 1])
-
-    net = model_fn_LENET_5(features, activation='relu',
-                           kernel_initializer=kernel_initializer,
-                           bias_initializer=bias_initializer)
+    net = LENET_5()
+    net_out = net.model_fn(features, mode)
 
     # logits: output is [None, CLASSES]
     logits = Dense(units=params['n_classes'], activation=None, use_bias=True,
                    kernel_initializer=kernel_initializer,
-                   bias_initializer=bias_initializer)(net)
+                   bias_initializer=bias_initializer)(net_out)
 
     # predictions
     predicted_classes = tf.argmax(logits, 1)
@@ -122,21 +77,47 @@ def model_fn(features, labels, mode, params):
     return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
 
 
-def make_input_fn(features, labels=None, batch_size=128, num_epochs=1, shuffle=False):
-    print('\nSHAPE: {}\n'.format(features.shape))
-    _input_fn = tf.estimator.inputs.numpy_input_fn(x={'features': features},
-                                                   y=labels,
-                                                   batch_size=batch_size,
-                                                   num_epochs=num_epochs,
-                                                   shuffle=shuffle)
-    return _input_fn
-
-
-# [TODO]: update serving function 
+# [TODO]: update serving function
 def serving_input_receiver_fn():
     inputs = {'features': tf.placeholder(
         shape=[None, 32, 32, 1], dtype=tf.float32)}
     return tf.estimator.export.ServingInputReceiver(inputs, inputs)
+
+
+def make_input_fn(data, labels,
+                  num_parallel_calls=4,
+                  batch_size=128,
+                  prefetch=1,
+                  shuffle=True,
+                  shuffle_len=1000,
+                  epochs=1):
+
+    def _input_fn():
+        dataset = tf.data.Dataset.zip(
+            (tf.data.Dataset.from_tensor_slices(data),
+                tf.data.Dataset.from_tensor_slices(labels)))
+
+        if shuffle:
+            dataset = dataset.shuffle(shuffle_len)
+        dataset = dataset.map(lambda feature, label: [tf.cast(feature, tf.float32),
+                                                        tf.cast(label, tf.int32)],
+                                num_parallel_calls=num_parallel_calls)
+        dataset = dataset.map(lambda feature, label: [tf.expand_dims(feature, -1),
+                                                        label],
+                                num_parallel_calls=num_parallel_calls)
+        dataset = dataset.map(lambda feature, label: [tf.image.resize_with_crop_or_pad(feature, 32, 32),
+                                                        label],
+                                num_parallel_calls=num_parallel_calls)
+        dataset = dataset.map(lambda feature, label: [tf.math.scalar_mul(1/255, feature),
+                                                        label],
+                                num_parallel_calls=num_parallel_calls)
+        dataset = dataset.repeat(epochs)
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.prefetch(prefetch)
+        return dataset
+
+    return _input_fn
+
 
 def main(_):
 
@@ -163,7 +144,7 @@ def main(_):
 
     # create feature columns
     feature_columns = [tf.feature_column.numeric_column(
-        key='features', shape=(32,32,1))]
+        key='features', shape=(32, 32, 1))]
 
     # [TODO]: remove feature_columns
     params = {'feature_columns': feature_columns,
@@ -175,41 +156,7 @@ def main(_):
         model_fn=model_fn,
         params=params,
         config=config
-    ) 
-
-    def make_input_fn(data, labels,
-                      num_parallel_calls = 4,
-                      batch_size = 128,
-                      prefetch = 1,
-                      shuffle = True,
-                      shuffle_len = 1000,
-                      epochs = 1):
-
-        def _input_fn():
-            dataset = tf.data.Dataset.zip(
-                (tf.data.Dataset.from_tensor_slices(data),
-                tf.data.Dataset.from_tensor_slices(labels)))
-
-            if shuffle:
-                dataset = dataset.shuffle(shuffle_len)
-            dataset = dataset.map(lambda feature, label: [tf.cast(feature, tf.float32), 
-                                                          tf.cast(label, tf.int32)],
-                                  num_parallel_calls=num_parallel_calls)
-            dataset = dataset.map(lambda feature, label: [tf.expand_dims(feature, -1),
-                                                          label],
-                                  num_parallel_calls=num_parallel_calls)
-            dataset = dataset.map(lambda feature, label: [tf.image.resize_with_crop_or_pad(feature, 32, 32),
-                                                          label],
-                                  num_parallel_calls=num_parallel_calls)
-            dataset = dataset.map(lambda feature, label: [tf.math.scalar_mul(1/255,feature),
-                                                          label],
-                                  num_parallel_calls=num_parallel_calls)
-            dataset = dataset.repeat(epochs)
-            dataset = dataset.batch(batch_size)
-            dataset = dataset.prefetch(prefetch)
-            return dataset
-
-        return _input_fn
+    )
 
     train_spec = tf.estimator.TrainSpec(
         input_fn=make_input_fn(train_data, train_labels,
