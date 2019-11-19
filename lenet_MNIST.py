@@ -1,5 +1,14 @@
-import os
+from tensorflow.compat.v1 import metrics as tf_metrics
+from tensorflow.python.util import deprecation as tf_deprecation
+from tensorflow.compat.v1.train import AdagradOptimizer
+from tensorflow.compat.v1.keras.layers import Dense
+from tensorflow.compat.v1.feature_column import input_layer
+from sklearn.metrics import classification_report, confusion_matrix
 import sys
+sys.path.insert(0, 'dataset_collection')
+from dataset_collection.image import MNIST
+import os
+
 import warnings
 import argparse
 from datetime import datetime
@@ -7,16 +16,9 @@ import json
 import numpy as np
 import tensorflow as tf
 
-from models.convolutional import LENET_5
-sys.path.insert(0, 'dataset_collection')
-from dataset_collection.image import MNIST
+from models import lenet
 
-from sklearn.metrics import classification_report, confusion_matrix
 
-from tensorflow.compat.v1.feature_column import input_layer
-from tensorflow.compat.v1.keras.layers import Dense
-from tensorflow.compat.v1.train import AdagradOptimizer
-from tensorflow.python.util import deprecation as tf_deprecation
 tf_deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 
@@ -26,8 +28,12 @@ def model_fn(features, labels, mode, params):
         mean=0, stddev=0.1)
     bias_initializer = 'zeros'
 
-    net = LENET_5()
-    net_out = net.model_fn(features, mode)
+    images = tf.feature_column.input_layer(features=features, 
+                                           feature_columns=params['feature_columns'])
+
+    images = tf.reshape(images, shape=[ x if x is not None else -1  for x in lenet.INPUT_SHAPE])
+
+    net_out = lenet.model_fn(images, mode)
 
     # logits: output is [None, CLASSES]
     logits = Dense(units=params['n_classes'], activation=None, use_bias=True,
@@ -49,7 +55,7 @@ def model_fn(features, labels, mode, params):
                                                               logits=logits)
     loss = tf.reduce_mean(xentropy)
 
-    accuracy = tf.metrics.accuracy(labels, predicted_classes, name='acc_op')
+    accuracy = tf_metrics.accuracy(labels, predicted_classes, name='acc_op')
 
     with tf.name_scope('metrics'):
         tf.summary.scalar('accuracy', accuracy[1])
@@ -77,11 +83,11 @@ def model_fn(features, labels, mode, params):
     return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
 
 
-# [TODO]: update serving function
-def serving_input_receiver_fn():
-    inputs = {'features': tf.placeholder(
-        shape=[None, 32, 32, 1], dtype=tf.float32)}
-    return tf.estimator.export.ServingInputReceiver(inputs, inputs)
+# [TODO]: move to utils module
+def make_raw_serving_input_receiver_fn(shape, name='images', dtype=tf.float32):
+
+    serving_features = {name: tf.placeholder(shape=shape, dtype=dtype)}
+    return tf.estimator.export.build_raw_serving_input_receiver_fn(serving_features)
 
 
 def make_input_fn(data, labels,
@@ -100,17 +106,19 @@ def make_input_fn(data, labels,
         if shuffle:
             dataset = dataset.shuffle(shuffle_len)
         dataset = dataset.map(lambda feature, label: [tf.cast(feature, tf.float32),
-                                                        tf.cast(label, tf.int32)],
-                                num_parallel_calls=num_parallel_calls)
+                                                      tf.cast(label, tf.int32)],
+                              num_parallel_calls=num_parallel_calls)
         dataset = dataset.map(lambda feature, label: [tf.expand_dims(feature, -1),
-                                                        label],
-                                num_parallel_calls=num_parallel_calls)
+                                                      label],
+                              num_parallel_calls=num_parallel_calls)
         dataset = dataset.map(lambda feature, label: [tf.image.resize_with_crop_or_pad(feature, 32, 32),
-                                                        label],
-                                num_parallel_calls=num_parallel_calls)
+                                                      label],
+                              num_parallel_calls=num_parallel_calls)
         dataset = dataset.map(lambda feature, label: [tf.math.scalar_mul(1/255, feature),
-                                                        label],
-                                num_parallel_calls=num_parallel_calls)
+                                                      label],
+                              num_parallel_calls=num_parallel_calls)
+        dataset = dataset.map(lambda feature, label: [{'images': feature},
+                                                      label])
         dataset = dataset.repeat(epochs)
         dataset = dataset.batch(batch_size)
         dataset = dataset.prefetch(prefetch)
@@ -142,12 +150,7 @@ def main(_):
                                     save_checkpoints_steps=FLAGS.save_checkpoints_steps,
                                     log_step_count_steps=FLAGS.log_step_count_steps)
 
-    # create feature columns
-    feature_columns = [tf.feature_column.numeric_column(
-        key='features', shape=(32, 32, 1))]
-
-    # [TODO]: remove feature_columns
-    params = {'feature_columns': feature_columns,
+    params = {'feature_columns':  lenet.get_feature_columns(),
               'n_classes': n_classes,
               'optimizer': AdagradOptimizer(learning_rate=FLAGS.learning_rate)
               }
@@ -169,24 +172,32 @@ def main(_):
         throttle_secs=FLAGS.throttle_secs)
 
     # training
+    print('********************************************************************')
+    print('                         TRAINING                                   ')
+    print('********************************************************************')
     tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
 
     # export
-    export_dir = classifier.export_saved_model(os.path.join(FLAGS.model_dir, 'saved_model'),
-                                               serving_input_receiver_fn=serving_input_receiver_fn)
+    print('********************************************************************')
+    print('                         EXPORTING                                  ')
+    print('********************************************************************')
+    export_dir = classifier.export_saved_model(os.path.join(FLAGS.model_dir,
+                                                            'saved_model'),
+                                               serving_input_receiver_fn=make_raw_serving_input_receiver_fn(lenet.INPUT_SHAPE))
 
     print('Model exported in: {}'.format(export_dir))
 
     # validation
-    predictions = classifier.predict(input_fn=tf.estimator.inputs.numpy_input_fn(x={'features': test_data},
-                                                                                 y=y_test,
-                                                                                 num_epochs=1,
-                                                                                 shuffle=False))
+    print('********************************************************************')
+    print('                         VALIDATION                                 ')
+    print('********************************************************************')
+    predictions = classifier.predict(input_fn=make_input_fn(test_data, test_labels,
+                                                            shuffle=False))
 
     y_pred = [pred['class_ids'] for pred in predictions]
-    print(classification_report(y_test, y_pred))
+    print(classification_report(test_labels, y_pred))
 
-    print(confusion_matrix(y_test, y_pred))
+    print(confusion_matrix(test_labels, y_pred))
 
 
 if __name__ == "__main__":
