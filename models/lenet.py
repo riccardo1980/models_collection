@@ -1,16 +1,23 @@
 import tensorflow as tf
 from tensorflow.compat.v1.keras.layers import Conv2D, MaxPool2D, Dense, Flatten
-from tensorflow.compat.v1 import variance_scaling_initializer
-
+from tensorflow.compat.v1.keras import initializers
+from typing import List
 
 INPUT_SHAPE = (None, 32, 32, 1)
 OUTPUT_SHAPE = (None, 84)
 
 
-def _cnn(features, mode):
+def _cnn(features: tf.Tensor, mode: tf.estimator.ModeKeys) -> tf.Tensor:
+    """
+        Feature extractor based on Conv layers
+
+        :param features: input of the sub network
+        :param mode: standard names for Estimator model modes
+        :return: output of the sub network
+
+    """
     activation = 'relu'
-    kernel_initializer = tf.keras.initializers.TruncatedNormal(
-        mean=0, stddev=0.1)
+    kernel_initializer = initializers.TruncatedNormal(mean=0, stddev=0.1)
     bias_initializer = 'zeros'
 
     # conv1: output is [None, 28, 28, 6]
@@ -34,9 +41,17 @@ def _cnn(features, mode):
     return pool2
 
 
-def _fcn(features, mode):
+def _fcn(features: tf.Tensor, mode: tf.estimator.ModeKeys) -> tf.Tensor:
+    """
+        Sequence of FullyConnected Layers
+
+        :param features: input of the sub network
+        :param mode: standard names for Estimator model modes
+        :return: output of the sub network
+
+    """
     activation = 'relu'
-    kernel_initializer = tf.keras.initializers.TruncatedNormal(
+    kernel_initializer = tf.compat.v1.keras.initializers.TruncatedNormal(
         mean=0, stddev=0.1)
     bias_initializer = 'zeros'
 
@@ -53,7 +68,15 @@ def _fcn(features, mode):
     return fc4
 
 
-def model_fn(features, mode):
+def model_fn(features: tf.Tensor, mode: tf.estimator.ModeKeys) -> tf.Tensor:
+    """
+        LENET 5 image classification convolutional network
+
+        :param features: input of the network
+        :param mode: standard names for Estimator model modes
+        :return: output of the network (except last FC that evaluates the logits)
+
+    """
 
     assert_input_op = tf.debugging.assert_equal(features.get_shape().as_list()[1:],
                                                 INPUT_SHAPE[1:])
@@ -72,7 +95,7 @@ def model_fn(features, mode):
     return fc4
 
 
-def get_feature_columns():
+def get_feature_columns() -> List[object]:
     feature_columns = [
         tf.feature_column.numeric_column('images', INPUT_SHAPE[1:]),
     ]

@@ -1,31 +1,31 @@
+import os
+import sys
+import warnings
+import argparse
+import json
+import numpy as np
+import tensorflow as tf
+
+from datetime import datetime
+from models import lenet
 from tensorflow.compat.v1 import metrics as tf_metrics
 from tensorflow.python.util import deprecation as tf_deprecation
 from tensorflow.compat.v1.train import AdagradOptimizer
 from tensorflow.compat.v1.keras.layers import Dense
 from tensorflow.compat.v1.feature_column import input_layer
+from tensorflow.compat.v1.keras import initializers
+from tensorflow.compat.v1 import app as tf_app
 from sklearn.metrics import classification_report, confusion_matrix
-import sys
+
 sys.path.insert(0, 'dataset_collection')
 from dataset_collection.image import MNIST
-import os
-
-import warnings
-import argparse
-from datetime import datetime
-import json
-import numpy as np
-import tensorflow as tf
-
-from models import lenet
-
 
 tf_deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 
 def model_fn(features, labels, mode, params):
 
-    kernel_initializer = tf.keras.initializers.TruncatedNormal(
-        mean=0, stddev=0.1)
+    kernel_initializer = initializers.TruncatedNormal(mean=0, stddev=0.1)
     bias_initializer = 'zeros'
 
     images = tf.feature_column.input_layer(features=features, 
@@ -86,7 +86,7 @@ def model_fn(features, labels, mode, params):
 # [TODO]: move to utils module
 def make_raw_serving_input_receiver_fn(shape, name='images', dtype=tf.float32):
 
-    serving_features = {name: tf.placeholder(shape=shape, dtype=dtype)}
+    serving_features = {name: tf.compat.v1.placeholder(shape=shape, dtype=dtype)}
     return tf.estimator.export.build_raw_serving_input_receiver_fn(serving_features)
 
 
@@ -243,4 +243,4 @@ if __name__ == "__main__":
 
     FLAGS, UNPARSED = parser.parse_known_args()
 
-    tf.app.run(main=main, argv=[sys.argv[0]] + UNPARSED)
+    tf_app.run(main=main, argv=[sys.argv[0]] + UNPARSED)
