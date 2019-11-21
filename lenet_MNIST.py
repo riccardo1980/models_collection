@@ -28,12 +28,13 @@ def model_fn(features, labels, mode, params):
     kernel_initializer = initializers.TruncatedNormal(mean=0, stddev=0.1)
     bias_initializer = 'zeros'
 
-    images = tf.feature_column.input_layer(features=features, 
+    images = tf.feature_column.input_layer(features=features,
                                            feature_columns=params['feature_columns'])
 
-    images = tf.reshape(images, shape=[ x if x is not None else -1  for x in lenet.INPUT_SHAPE])
+    model_provider = params['model']
 
-    net_out = lenet.model_fn(images, mode)
+    images = tf.reshape(images, shape=[x if x is not None else -1  for x in model_provider.INPUT_SHAPE])
+    net_out = model_provider.model_fn(images, mode)
 
     # logits: output is [None, CLASSES]
     logits = Dense(units=params['n_classes'], activation=None, use_bias=True,
@@ -150,9 +151,12 @@ def main(_):
                                     save_checkpoints_steps=FLAGS.save_checkpoints_steps,
                                     log_step_count_steps=FLAGS.log_step_count_steps)
 
-    params = {'feature_columns':  lenet.get_feature_columns(),
+    model = lenet.lenet()
+
+    params = {'feature_columns':  model.get_feature_columns(),
               'n_classes': n_classes,
-              'optimizer': AdagradOptimizer(learning_rate=FLAGS.learning_rate)
+              'optimizer': AdagradOptimizer(learning_rate=FLAGS.learning_rate),
+              'model': model
               }
 
     classifier = tf.estimator.Estimator(
@@ -183,7 +187,7 @@ def main(_):
     print('********************************************************************')
     export_dir = classifier.export_saved_model(os.path.join(FLAGS.model_dir,
                                                             'saved_model'),
-                                               serving_input_receiver_fn=make_raw_serving_input_receiver_fn(lenet.INPUT_SHAPE))
+                                               serving_input_receiver_fn=make_raw_serving_input_receiver_fn(model.INPUT_SHAPE))
 
     print('Model exported in: {}'.format(export_dir))
 
