@@ -15,7 +15,7 @@ class ABCmodel(abc.ABC):
                  features: tf.Tensor,
                  mode: tf.estimator.ModeKeys) -> tf.Tensor:
         """
-            alexnet image classification convolutional network
+            Model function builder
 
             :param features: input of the network
             :param mode: standard names for Estimator model modes
@@ -26,4 +26,9 @@ class ABCmodel(abc.ABC):
 
     @abc.abstractmethod
     def get_feature_columns(self) -> List[object]:
+        """
+            Feature column list builder
+
+            :return: list of feature columns
+        """
         pass
