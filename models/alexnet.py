@@ -2,12 +2,14 @@ import tensorflow as tf
 from tensorflow.compat.v1.keras.layers import Conv2D, MaxPool2D, Dense, Flatten, Dropout
 from tensorflow.compat.v1.keras import initializers
 from typing import List
+from models.ABCmodel import ABCmodel
 
 
-class alexnet():
+class alexnet(ABCmodel):
     def __init__(self):
-        self.INPUT_SHAPE = (None, 227, 227, 3)
-        self.OUTPUT_SHAPE = (None, 4096)
+        INPUT_SHAPE = (None, 227, 227, 3)
+        OUTPUT_SHAPE = (None, 4096)
+        super().__init__(INPUT_SHAPE, OUTPUT_SHAPE)
 
     def model_fn(self,
                  features: tf.Tensor,

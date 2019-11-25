@@ -2,12 +2,14 @@ import tensorflow as tf
 from tensorflow.compat.v1.keras.layers import Conv2D, MaxPool2D, Dense, Flatten
 from tensorflow.compat.v1.keras import initializers
 from typing import List, Dict
+from models.ABCmodel import ABCmodel
 
 
-class lenet():
+class lenet(ABCmodel):
     def __init__(self):
-        self.INPUT_SHAPE = (None, 32, 32, 1)
-        self.OUTPUT_SHAPE = (None, 84)
+        INPUT_SHAPE = (None, 32, 32, 1)
+        OUTPUT_SHAPE = (None, 84)
+        super().__init__(INPUT_SHAPE, OUTPUT_SHAPE)
 
     def model_fn(self,
                  features: tf.Tensor,
